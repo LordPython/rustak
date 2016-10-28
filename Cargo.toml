@@ -1,0 +1,7 @@
+﻿[package]
+name = "rustak"
+version = "0.1.0"
+authors = ["Joseph Martin"]
+
+[dependencies]
+nom = "^1.2.4"
