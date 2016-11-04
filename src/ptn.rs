@@ -1,6 +1,24 @@
 ﻿use nom;
-use ::game::{Loc,Move,Dir,Piece};
+use ::game::{self,Loc,Move,Dir,Piece};
 use std::cmp::min;
+use time::Tm;
+use std::str::from_utf8;
+
+#[derive(Debug)]
+pub struct Ptn {
+  player1: String,
+  player2: String,
+  date: Tm,
+  size: u8,
+  result: game::Result,
+  moves: Vec<Move>
+}
+
+#[derive(Debug)]
+pub struct Tag {
+  name: String,
+  value: String,
+}
 
 macro_rules! check(
   ($input:expr, $submac:ident!( $($args:tt)* )) => (
@@ -55,10 +73,12 @@ named!(movement <Move>,
         '-' => Dir::Down,
         '<' => Dir::Left,
         /*'>'*/ _  => Dir::Right,
-
       };
 
       let mut d = [0u8; 7];
+      if drops.len() == 0 {
+        d[0] = num_pieces.map(|x| x[0]-b'0').unwrap_or(1);
+      }
       for i in 0 .. min(7, range) {
         d[i] = drops[i][0] as u8 - b'0';
       }
@@ -68,13 +88,39 @@ named!(movement <Move>,
   )
 );
 
-named!(placement <Move>,
+named!(piece_type(&[u8]) -> Piece,
+  alt!( one_of!("fF") => { |_| Piece::Flat }
+      | one_of!("sS") => { |_| Piece::Wall }
+      | one_of!("cC") => { |_| Piece::Cap })
+);
+
+named!(placement(&[u8]) -> Move,
   chain!(
-    piece: opt!(alt!( one_of!("fF") => { |_| Piece::Flat }
-                    | one_of!("sS") => { |_| Piece::Wall } 
-                    | one_of!("cC") => { |_| Piece::Cap })) ~
+    piece: opt!(piece_type) ~
     square: parse_square, || {
       Move::Place(square, piece.unwrap_or(Piece::Flat))
+    }
+  )
+);
+
+fn is_tag_char(c: u8) -> bool {
+  match c {
+    b'a' ... b'z' | b'A' ... b'Z' | b'0' ... b'9' | b'_' => true,
+    _ => false
+  }
+}
+
+named!(pub ptn_tag(&[u8]) -> Tag,
+  chain!(
+    tag!(b"[") ~
+    name: take_while!(is_tag_char) ~
+    many0!(one_of!(b" \t")) ~
+    value: delimited!(char!('"'), is_not!(b"\""), char!('"')) ~
+    tag!(b"]"), || {
+      Tag {
+        name: from_utf8(name).unwrap().to_string(),
+        value: from_utf8(value).unwrap().to_string()
+      }
     }
   )
 );
