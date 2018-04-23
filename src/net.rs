@@ -1,12 +1,3 @@
-/*
-enum IncomingMessage {
-  Welcome,
-  LoginReady,
-  LoginSuccessful,
-
-}
-*/
-
 use game::{self, Move, Loc, Piece, Dir, Player};
 
 #[derive(Debug)]
@@ -247,17 +238,27 @@ mod tests {
   use super::parse_moves;
   use super::parse_result;
 
+  // Games that have the wrong result recorded from when playtak did not properly implement the
+  // dragon rule
   const PLAYTAK_DRAGON_RULE_BUG_GAMES : [i64; 13] = [3172,4932,6037,6249,14270,15070,15527,16082,16325,17091,17316,17405,17532];
-  const PLAYTAK_INCORRECT_RESULT_GAMES : [i64; 6] = [380, 3018, 9329, 15296, 54675, 81952];
+  // Games that have extra moves past when the game has been won, and the database has the wrong
+  // result recorded
+  const PLAYTAK_INCORRECT_RESULT_GAMES : [i64; 7] = [380, 3018, 9329, 15296, 54675, 81952, 116539];
+  //
   const PLAYTAK_UNKNOWN_PROBLEM_GAMES: [i64; 3] = [9013,9449,9598];
 
   #[test]
   fn test_moves() {
     let mut dbfile = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    dbfile.push("games_anon.db");
+    dbfile.push("games_anon.db.1");
     let connection = sqlite::open(dbfile).unwrap();
+    // Games between sTAKbot1 and sTAKbot2 have been filtered out as it seems a number of them
+    // contain invalid moves
     let mut cursor = connection.prepare("
-      SELECT size, notation, result, id FROM games
+      SELECT size, notation, result, id 
+      FROM games
+      WHERE (player_white != \"sTAKbot1\" or player_black != \"sTAKbot2\")
+        and (player_white != \"sTAKbot2\" or player_black != \"sTAKbot1\")
     ").unwrap().cursor();
 
     while let Some(row) = cursor.next().unwrap() {
@@ -265,6 +266,7 @@ mod tests {
       let moves_str = row[1].as_string().unwrap();
       let result_str = row[2].as_string().unwrap();
       let id = row[3].as_integer().unwrap();
+
       if result_str.starts_with("0-0") {
         // Not sure why there exist games with this result.
         // It's not a valid result
@@ -284,10 +286,10 @@ mod tests {
         if let Some(res) = g.game_over() {
           break;
         }
-        if let MoveValidity::Valid = g.valid(m) {
+        if let MoveValidity::Valid = g.validate(m) {
           g.execute(m);
         } else {
-          panic!("Move {:?} not valid", m);
+          panic!("Error during simulated game(id={})\nMove {:?} not valid\nBoard State: \n{}\nWhite: \n{}\nBlack:\n{}\nMoves str:\n{}", id, m, g.to_string(), g.c.format(g.white), g.c.format(g.black), moves_str);
         }
       }
 

@@ -13,7 +13,7 @@ macro_rules! check(
         }
       }
       if failed {
-        nom::IResult::Error(nom::Err::Position(nom::ErrorKind::Custom(20),$input))
+        nom::IResult::Error(nom::ErrorKind::Custom(20))
       } else {
         nom::IResult::Done(&""[..], $input)
       }
@@ -34,11 +34,11 @@ macro_rules! char_between(
 );
 
 named!(pub parse_square(&str) -> Loc,
-  chain!(
+  do_parse!(
     x: alt!( char_between!('a','h') => {|c: &str| c.chars().next().unwrap() as u8 - b'a'}
-           | char_between!('A','H') => {|c: &str| c.chars().next().unwrap() as u8 - b'A'}) ~
-    y: char_between!('1','8'), ||
-    { Loc { x: x, y: y.chars().next().unwrap() as u8 - b'1' } }
+           | char_between!('A','H') => {|c: &str| c.chars().next().unwrap() as u8 - b'A'}) >>
+    y: char_between!('1','8') >>
+    (Loc { x: x, y: y.chars().next().unwrap() as u8 - b'1' })
   )
 );
 
@@ -60,40 +60,41 @@ named!(dropcount(&str) -> u8,
 );
 
 named!(placement(&str) -> Move,
-  chain!(tag_s!("P") ~ ws ~
-         sq: parse_square ~
-         pt: opt!(preceded!(ws, piece_type)),
-  || {
-    Move::Place(sq, pt.unwrap_or(Piece::Flat))
-  })
+  do_parse!(
+    tag_s!("P") >> ws >>
+    sq: parse_square >>
+    pt: opt!(preceded!(ws, piece_type)) >>
+    (Move::Place(sq, pt.unwrap_or(Piece::Flat)))
+  )
 );
 
 named!(movement(&str) -> Move,
-  chain!(tag_s!("M") ~ ws ~ start: parse_square ~ ws ~ end: parse_square ~
-         drops: separated_list!(ws, dropcount),
-  || {
-    let dx = end.x as i16 - start.x as i16;
-    let dy = end.y as i16 - start.y as i16;
-    let dir = if dx > 0 {
-      Dir::Right
-    } else if dx < 0 {
-      Dir::Left
-    } else if dy > 0 {
-      Dir::Up
-    } else {
-      Dir::Down
-    };
-    let mut dc = [0u8; 7];
-    let mut i = 0;
-    for drop in &drops {
-      if i >= 7 {
-        break;
+  do_parse!(
+    tag_s!("M") >> ws >> start: parse_square >> ws >> end: parse_square >>
+    drops: separated_list!(ws, dropcount) >> ({
+      let dx = end.x as i16 - start.x as i16;
+      let dy = end.y as i16 - start.y as i16;
+      let dir = if dx > 0 {
+        Dir::Right
+      } else if dx < 0 {
+        Dir::Left
+      } else if dy > 0 {
+        Dir::Up
+      } else {
+        Dir::Down
+      };
+      let mut dc = [0u8; 7];
+      let mut i = 0;
+      for drop in &drops {
+        if i >= 7 {
+          break;
+        }
+        dc[i] = *drop;
+        i+=1;
       }
-      dc[i] = *drop;
-      i+=1;
-    }
-    Move::Move(start, dir, drops.len() as u8, dc, false)
-  })
+      Move::Move(start, dir, drops.len() as u8, dc, false)
+    })
+  )
 );
 
 named!(parse_move(&str) -> Move,
