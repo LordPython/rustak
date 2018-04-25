@@ -2,17 +2,16 @@
 #![feature(const_fn)]
 extern crate test;
 
-#[macro_use]
-extern crate nom;
+//#[macro_use]
+//extern crate nom;
 extern crate time;
 extern crate sqlite;
 
 mod game;
 mod ptn;
 mod tps;
-mod net;
+mod playtak;
 mod tables;
-mod db;
 
 mod fnv64 {
   use std::hash::Hasher;
@@ -77,11 +76,19 @@ mod fnv64 {
 }
 
 fn main() {
-    use std::mem::size_of;
-
-    println!("{:?}", net::parse_moves("  M A1 A3   1 2, P B3 C"));
+    println!("{:?}", playtak::parse_moves("  M A1 A3   1 2, P B3 C"));
     let c = game::bits::Constants::new(5);
     println!("0x{:x}", c.mask);
+
+    let ptnmove = "6a5+123";
+    println!("{:?}: {:?}", ptnmove, ptn::parse_move(ptnmove));
+    println!("{:?}: {:?}", "Sa2", ptn::parse_move("Sa2"));
+    println!("{:?}: {:?}", "D3", ptn::parse_move("D3"));
+    println!("{:?}: {:?}", "Cb7", ptn::parse_move("Cb7"));
+    //println!("{:?}: {:?}", "1. a3>1 a5\n2. b2 b1", ptn::body(&b"1. 1 a3>1 a5\n2. b2 b1"[..]));
+    //println!("{:?}: {:?}", "BODY", ptn::body(&b"1. a3>1 a5 x"[..]));
+    //println!("{:?}: {:?}", "BODY", ptn::body_eof(&b"1. a3>1 a5"[..]));
+    /*
     let mut x = 3;
     loop {
       let next = c.grow(x, c.mask);
@@ -89,7 +96,22 @@ fn main() {
       println!("{}\n", c.format(next));
       x = next;
     }
+    */
 
+    /*
+    let ptnmove = b"a5+123";
+    println!("{:?}: {:?}", ptnmove, ptn::annotated_move(&ptnmove[..]));
+    println!("{:?}: {:?}", "Sa2", ptn::annotated_move(&b"Sa2"[..]));
+    println!("{:?}: {:?}", "D3", ptn::annotated_move(&b"D3"[..]));
+    println!("{:?}: {:?}", "Cb7", ptn::annotated_move(&b"Cb7"[..]));
+    //println!("{:?}: {:?}", "1. a3>1 a5\n2. b2 b1", ptn::body(&b"1. 1 a3>1 a5\n2. b2 b1"[..]));
+    //println!("{:?}: {:?}", "BODY", ptn::body(&b"1. a3>1 a5 x"[..]));
+    println!("{:?}: {:?}", "BODY", ptn::body_eof(&b"1. a3>1 a5"[..]));
+
+    let bodyptn = include_bytes!("../body.ptn");
+    println!("{:?}: {:?}", "BODYPTN", ptn::body_eof(bodyptn));
+    let bodyptn2 = b"1. a1 a6\n2. c4 b4\n3. c3 c5\n4. b3 Cd4\n5. Cd3 a3\n";
+    println!("{:?}: {:?}", "BODYPTN2", ptn::body_eof(bodyptn2));
 
     let file = include_bytes!("../test.ptn");
     let p = ptn::parse(file);
@@ -135,6 +157,7 @@ fn main() {
       }
     }
 
+    */
 }
 
 #[cfg(test)]
@@ -145,12 +168,12 @@ mod tests {
 
   #[bench]
   fn test_ptn(b: &mut Bencher) {
-    let file = include_bytes!("../test.ptn");
-    b.iter(|| ptn::parse(file));
+    //let file = include_bytes!("../test.ptn");
+    //b.iter(|| ptn::parse(file));
   }
 
   #[bench]
   fn test_move(b: &mut Bencher) {
-    b.iter(|| ptn::parse_move(&b"3c3+12"[..]));
+    //b.iter(|| ptn::parse_move(&b"3c3+12"[..]));
   }
 }

@@ -4,6 +4,5 @@ version = "0.1.0"
 authors = ["Joseph Martin"]
 
 [dependencies]
-nom = "^3.2.1"
 time = "^0.1.35"
 sqlite = "^0.23.1"
