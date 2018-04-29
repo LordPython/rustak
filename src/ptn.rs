@@ -72,11 +72,25 @@ macro_rules! char_to_number (
   });
 );
 
+// Insert a failure if the given condition evaluates to true
+macro_rules! failure_if (
+  ($i:expr, $cond:expr, $code:expr) => ({
+    cond_with_error!($i, $cond, |_| -> IResult<CompleteStr,()> {
+      Err(nom::Err::Failure(error_position!($i, ErrorKind::Custom($code))))
+    })
+  })
+);
+
+fn eat_ws(input: CompleteStr) -> IResult<CompleteStr, ()> {
+  value!(input, (), take_while!(char::is_whitespace))
+}
+
 // -------------------------------------------
 // ------------- Move Parsing ----------------
 // -------------------------------------------
 
 // Board square parsing (i.e. a1,a2,a3,....,h8)
+// Note: a1 -> Loc { x: 0, y: 0 }, a2 -> Loc { x: 0, y: 1 }, etc.
 named!(pub parse_square(CompleteStr) -> Loc,
   do_parse!(
     x: alt!( char_to_number!('a','h', base: 'a')
@@ -87,27 +101,18 @@ named!(pub parse_square(CompleteStr) -> Loc,
 );
 
 // PTN format piece type
-named!(piece_type(CompleteStr) -> Piece,
+named!(parse_piece_type(CompleteStr) -> Piece,
   alt!( one_of!("fF") => { |_| Piece::Flat }
       | one_of!("sS") => { |_| Piece::Wall }
-      | one_of!("cC") => { |_| Piece::Cap }
-      | value!(Piece::Flat))
+      | one_of!("cC") => { |_| Piece::Cap })
 );
 
 // PTN format movement direction
 named!(parse_direction(CompleteStr) -> Dir,
-  alt!( tag!("+") => { |_| Dir::Up }
-      | tag!("-") => { |_| Dir::Down }
-      | tag!("<") => { |_| Dir::Left }
-      | tag!(">") => { |_| Dir::Right })
-);
-
-macro_rules! error_if (
-  ($i:expr, $cond:expr, $code:expr) => ({
-    cond_with_error!($i, $cond, |_| -> IResult<CompleteStr,()> {
-      Err(nom::Err::Failure(error_position!($i, ErrorKind::Custom($code))))
-    })
-  })
+  alt!( char!('+') => { |_| Dir::Up }
+      | char!('-') => { |_| Dir::Down }
+      | char!('<') => { |_| Dir::Left }
+      | char!('>') => { |_| Dir::Right })
 );
 
 named!(parse_num_pieces(CompleteStr) -> u8,
@@ -120,7 +125,7 @@ named!(parse_num_pieces(CompleteStr) -> u8,
 named!(parse_drops(CompleteStr) -> (u8,[u8;7]),
   do_parse!(
     drops: take_while!(|c| c >= '1' && c <= '8') >>
-    error_if!(drops.len() > 7, TOO_MANY_DROPS_CODE) >>
+    failure_if!(drops.len() > 7, TOO_MANY_DROPS_CODE) >>
     ({
       let mut d = [0u8; 7];
       for (i, c) in drops.char_indices() {
@@ -139,7 +144,7 @@ named!(movement(CompleteStr) -> Move,
     dir: parse_direction >>
     drops: parse_drops >>
     // Move is invalid
-    error_if!(drops.0 > 0 && drops.1.iter().sum::<u8>() != num_pieces, NUM_PIECES_MISMATCH_CODE) >>
+    failure_if!(drops.0 > 0 && drops.1.iter().sum::<u8>() != num_pieces, NUM_PIECES_MISMATCH_CODE) >>
     ({
       let range = drops.0;
       let drops = drops.1;
@@ -156,12 +161,10 @@ named!(movement(CompleteStr) -> Move,
 
 // Placement move
 named!(placement(CompleteStr) -> Move,
-  alt!( parse_square => { |square| Move::Place(square, Piece::Flat) }
-      | do_parse!(
-          piece: piece_type >>
-          square: parse_square >>
-          (Move::Place(square, piece))
-        )
+  do_parse!(
+    piece: opt!(parse_piece_type) >>
+    square: parse_square >>
+    (Move::Place(square, piece.unwrap_or(Piece::Flat)))
   )
 );
 
@@ -169,7 +172,6 @@ named!(placement(CompleteStr) -> Move,
 // Either a placement or a movement
 named!(parse_move_internal(CompleteStr) -> Move,
   alt!(movement | placement)
-  //do_parse!(m: movement >> (m))
 );
 
 // Parsing for move annotations (tak / tinue)
@@ -188,18 +190,17 @@ named!(subj_eval(CompleteStr) -> SubjAnnotation,
       | tag!("!") => { |_| SubjAnnotation::Surprising })
 );
 
-named!(annotation(CompleteStr) -> (Option<TakAnnotation>, Option<SubjAnnotation>),
-  alt!(
-    do_parse!(t: tak_eval >> opt_ws >> s: opt!(subj_eval) >> (Some(t), s)) |
-    do_parse!(s: subj_eval >> opt_ws >> t: opt!(tak_eval) >> (t, Some(s)))
-  )
-);
-
 named!(annotated_move(CompleteStr) -> AnnotatedMove,
   do_parse!(
     parsed_move: parse_move_internal >>
-    annotation: opt!(preceded!(opt_ws,annotation)) >>
-    (AnnotatedMove { m: parsed_move, annotation: annotation.unwrap_or((None,None)) })
+    annotation: alt!(
+      do_parse!(t: opt!(preceded!(eat_ws, tak_eval)) >>
+                s: opt!(preceded!(eat_ws, subj_eval)) >> (t, s)) |
+      do_parse!(s: opt!(preceded!(eat_ws, subj_eval)) >>
+                t: opt!(preceded!(eat_ws, tak_eval)) >> (t, s))
+    ) >>
+
+    (AnnotatedMove { m: parsed_move, annotation: annotation })
   )
 );
 
@@ -214,18 +215,14 @@ fn is_tag_char(c: char) -> bool {
   }
 }
 
-fn opt_ws(input: CompleteStr) -> IResult<CompleteStr, ()> {
-  value!(input, (), take_while!(char::is_whitespace))
-}
-
 named!(tag(CompleteStr) -> Tag,
   do_parse!(
     tag!("[") >>
-    opt_ws >>
+    eat_ws >>
     name: take_while!(is_tag_char) >>
-    opt_ws >>
+    eat_ws >>
     value: delimited!(tag!("\""), is_not!("\""), tag!("\"")) >>
-    opt_ws >>
+    eat_ws >>
     tag!("]") >> (
       Tag {
         name: name.to_ascii_lowercase(),
@@ -253,33 +250,23 @@ named!(result(CompleteStr) -> game::Winner,
 
 fn body(input: CompleteStr) -> IResult<CompleteStr, Vec<AnnotatedMove>> {
   let mut moves = Vec::new();
-  value!(input, moves, separated_list!(opt_ws,
+  value!(input, moves, separated_list!(eat_ws,
     do_parse!(
       many1!(digit) >> tag!(".") >>
       many_m_n!(1,2, do_parse!(
-        opt_ws >>
+        eat_ws >>
         opt!(comment) >>
-        opt_ws >>
+        eat_ws >>
         tap!(a_move: annotated_move => moves.push(a_move.clone())) >> ()
       )) >>
-      opt!(preceded!(opt_ws,comment)) >>
+      opt!(preceded!(eat_ws,comment)) >>
       ()
     )
   ))
 }
 
-named!(parse_move_full(CompleteStr) -> Move,
-  do_parse!(
-    opt_ws >>
-    m: parse_move_internal >>
-    opt_ws >>
-    eof!() >>
-    (m)
-  )
-);
-
 pub fn parse_move(input: &str) -> Option<Move> {
-  match parse_move_full(CompleteStr(input)) {
+  match exact!(CompleteStr(input.trim()), parse_move_internal) {
     Ok((_, m)) => Some(m),
     Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
       println!("ERROR LIST {:?}", error_to_list(&e));
@@ -332,11 +319,11 @@ pub fn to_string(m: &Move) -> String {
 
 pub fn parse(input: &str) -> Option<Ptn> {
   let result = do_parse!(CompleteStr(input),
-    opt_ws >>
-    tags: separated_list!(opt_ws, tag) >>
-    opt_ws >>
+    eat_ws >>
+    tags: separated_list!(eat_ws, tag) >>
+    eat_ws >>
     moves: body >>
-    opt_ws >>
+    eat_ws >>
     eof!() >>
     ({
       let mut notation = Ptn { player1: String::new(), player2: String::new(), size: 0, result: None, tags, moves };
