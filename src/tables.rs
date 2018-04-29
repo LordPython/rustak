@@ -3,7 +3,7 @@ pub struct TableIter { start: usize, end: usize }
 pub struct DropCount(pub u8, pub [u8; 7]);
 
 impl TableIter {
-  const fn new(start: usize, range: usize) -> Self { TableIter { start: start, end: start+range } }
+  const fn new(start: usize, range: usize) -> Self { TableIter { start, end: start+range } }
 }
 
 impl Iterator for TableIter {
@@ -21,9 +21,10 @@ impl Iterator for TableIter {
 
 #[inline]
 pub fn drop_counts(stones: usize, range: usize, smash: bool) -> TableIter {
-  match smash {
-    false => MOVE_IDXS[stones][range],
-    true  => SMASH_IDXS[stones][range],
+  if smash {
+    SMASH_IDXS[stones][range]
+  } else {
+    MOVE_IDXS[stones][range]
   }
 }
 

@@ -6,3 +6,12 @@ authors = ["Joseph Martin"]
 [dependencies]
 time = "^0.1.35"
 sqlite = "^0.23.1"
+nom = { version = "^4.0.0-beta2", features = ["verbose-errors"] }
+
+[features]
+default = ["stack_128"]
+stack_128 = []
+
+[lib]
+name = "rustak"
+crate-type = ["rlib"]

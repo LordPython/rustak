@@ -29,7 +29,7 @@ fn ws(input: &str) -> &str {
 }
 
 #[inline]
-fn parse_square<'a>(input: &'a str) -> Result<(Loc, &'a str),ErrorType> {
+fn parse_square(input: &str) -> Result<(Loc, &str),ErrorType> {
   use self::ErrorType::*;
 
   let mut chars = input.chars();
@@ -47,11 +47,11 @@ fn parse_square<'a>(input: &'a str) -> Result<(Loc, &'a str),ErrorType> {
     None    => return Err(EndOfFile),
   };
 
-  Ok((Loc { x: x, y: y }, chars.as_str()))
+  Ok((Loc { x, y }, chars.as_str()))
 }
 
 #[inline]
-fn parse_piecetype<'a>(input: &'a str) -> Result<(Piece, &'a str),ErrorType> {
+fn parse_piecetype(input: &str) -> Result<(Piece, &str),ErrorType> {
   use self::ErrorType::*;
   let mut chars = input.chars();
   let piece = match chars.next() {
@@ -65,7 +65,7 @@ fn parse_piecetype<'a>(input: &'a str) -> Result<(Piece, &'a str),ErrorType> {
 }
 
 #[inline]
-fn parse_dropcounts<'a>(input: &'a str, num: u8) -> Result<([u8; 7], &'a str), ErrorType> {
+fn parse_dropcounts(input: &str, num: u8) -> Result<([u8; 7], &str), ErrorType> {
   use self::ErrorType::*;
   let mut i = input;
   let mut dropcounts = [0u8; 7];
@@ -83,7 +83,7 @@ fn parse_dropcounts<'a>(input: &'a str, num: u8) -> Result<([u8; 7], &'a str), E
 }
 
 #[inline]
-pub fn parse_move<'a>(input: &'a str) -> Result<(Move, &'a str),ErrorType> {
+pub fn parse_move(input: &str) -> Result<(Move, &str),ErrorType> {
   use self::ErrorType::*;
   let mut chars = input.chars();
 
@@ -115,12 +115,12 @@ pub fn parse_move<'a>(input: &'a str) -> Result<(Move, &'a str),ErrorType> {
       let (dropcounts, input) = parse_dropcounts(input, range)?;
       Ok((Move::Move(start, dir, range, dropcounts, false), input))
     },
-    Some(c) => return Err(InvalidChar(c)),
-    None    => return Err(EndOfFile),
+    Some(c) => Err(InvalidChar(c)),
+    None    => Err(EndOfFile),
   }
 }
 
-pub fn parse_moves<'a>(input: &'a str) -> Result<(Vec<Move>, &'a str), ErrorType> {
+pub fn parse_moves(input: &str) -> Result<(Vec<Move>, &str), ErrorType> {
   let mut moves = Vec::new();
   let mut res = match parse_move(ws(input)) {
     Ok(res) => res,
@@ -141,7 +141,7 @@ pub fn parse_moves<'a>(input: &'a str) -> Result<(Vec<Move>, &'a str), ErrorType
   Ok((moves, res.1))
 }
 
-pub fn parse_result<'a>(input: &'a str) -> Result<(game::Result, &'a str), ErrorType> {
+pub fn parse_result(input: &str) -> Result<(game::Winner, &str), ErrorType> {
   use self::ErrorType::*;
   let mut chars = input.chars();
   let res = match chars.next() {
@@ -149,7 +149,7 @@ pub fn parse_result<'a>(input: &'a str) -> Result<(game::Result, &'a str), Error
       match chars.next() {
         Some('-') => {
           match chars.next() {
-            Some('0') => game::Result::Other(Player::White),
+            Some('0') => game::Winner::Other(Player::White),
             Some(c) => return Err(InvalidChar(c)),
             None => return Err(EndOfFile),
           }
@@ -176,7 +176,7 @@ pub fn parse_result<'a>(input: &'a str) -> Result<(game::Result, &'a str), Error
             None => return Err(EndOfFile),
           }
           match chars.next() {
-            Some('2') => game::Result::Draw,
+            Some('2') => game::Winner::Draw,
             Some(c) => return Err(InvalidChar(c)),
             None => return Err(EndOfFile),
           }
@@ -192,9 +192,9 @@ pub fn parse_result<'a>(input: &'a str) -> Result<(game::Result, &'a str), Error
         None => return Err(EndOfFile),
       }
       match chars.next() {
-        Some('R') => game::Result::Road(Player::Black),
-        Some('F') => game::Result::Flat(Player::Black),
-        Some('1') => game::Result::Other(Player::Black),
+        Some('R') => game::Winner::Road(Player::Black),
+        Some('F') => game::Winner::Flat(Player::Black),
+        Some('1') => game::Winner::Other(Player::Black),
         Some(c) => return Err(InvalidChar(c)),
         None => return Err(EndOfFile),
       }
@@ -206,7 +206,7 @@ pub fn parse_result<'a>(input: &'a str) -> Result<(game::Result, &'a str), Error
         None => return Err(EndOfFile),
       }
       match chars.next() {
-        Some('0') => game::Result::Road(Player::White),
+        Some('0') => game::Winner::Road(Player::White),
         Some(c) => return Err(InvalidChar(c)),
         None => return Err(EndOfFile),
       }
@@ -218,7 +218,7 @@ pub fn parse_result<'a>(input: &'a str) -> Result<(game::Result, &'a str), Error
         None => return Err(EndOfFile),
       }
       match chars.next() {
-        Some('0') => game::Result::Flat(Player::White),
+        Some('0') => game::Winner::Flat(Player::White),
         Some(c) => return Err(InvalidChar(c)),
         None => return Err(EndOfFile),
       }
@@ -233,7 +233,7 @@ pub fn parse_result<'a>(input: &'a str) -> Result<(game::Result, &'a str), Error
 #[cfg(test)]
 mod tests {
   use std::path::PathBuf;
-  use game::{self, Game, MoveValidity};
+  use game::{self, MoveValidity, Game};
   use sqlite;
   use super::parse_moves;
   use super::parse_result;
@@ -281,20 +281,20 @@ mod tests {
         Ok((result, _)) => result,
         Err(e) => panic!("Could not parse result '{}', error: {:?}", result_str, e),
       };
-      let mut g = Game::new(size as usize).unwrap();
+      let mut g = game::new(size as usize).unwrap();
       for m in moves.iter_mut() {
-        if let Some(res) = g.game_over() {
+        if let Some(_) = g.status() {
           break;
         }
         if let MoveValidity::Valid = g.validate(m) {
           g.execute(m);
         } else {
-          panic!("Error during simulated game(id={})\nMove {:?} not valid\nBoard State: \n{}\nWhite: \n{}\nBlack:\n{}\nMoves str:\n{}", id, m, g.to_string(), g.c.format(g.white), g.c.format(g.black), moves_str);
+          panic!("Error during simulated game(id={})\nMove {:?} not valid\nBoard State: \n{}\nMoves str:\n{}", id, m, g.to_string(), moves_str);
         }
       }
 
       match result {
-        game::Result::Other(_) => {},
+        game::Winner::Other(_) => {},
         _ => {
           if PLAYTAK_UNKNOWN_PROBLEM_GAMES.contains(&id) {
             continue;
@@ -307,14 +307,14 @@ mod tests {
           if PLAYTAK_DRAGON_RULE_BUG_GAMES.contains(&id) {
             continue;
           }
-          let simulated = g.game_over();
+          let simulated = g.status();
           if simulated.is_none() {
-            if result == game::Result::Draw { continue; }
-            panic!("Simulated game (id={}) did not terminate, result should have been {:?}\nFinal board state:\n{}\nwhite:\n{}\nblack:\n{}", id, result, g.to_string(), g.c.format(g.white), g.c.format(g.black));
+            if result == game::Winner::Draw { continue; }
+            panic!("Simulated game (id={}) did not terminate, result should have been {:?}\nFinal board state:\n{}", id, result, g.to_string());
           }
 
           if result != simulated.unwrap() {
-            panic!("Simulated game (id={}) had incorrect result {:?}, should have been {:?}\nFinal board state:\n{}\nwhite:\n{}\nblack:\n{}", id, simulated, result, g.to_string(), g.c.format(g.white), g.c.format(g.black));
+            panic!("Simulated game (id={}) had incorrect result {:?}, should have been {:?}\nFinal board state:\n{}", id, simulated, result, g.to_string());
           }
         },
       }

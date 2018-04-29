@@ -1,0 +1,12 @@
+[package]
+name = "python"
+version = "0.1.0"
+authors = ["Joseph Martin <joseph@josephmartin.org>"]
+
+[dependencies]
+rustak = { path = ".." }
+pyo3 = { version = "^0.2.6", features = ["extension-module"] }
+
+[lib]
+name = "pyrustak"
+crate-type = ["cdylib"]
