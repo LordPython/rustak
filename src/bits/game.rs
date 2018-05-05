@@ -4,7 +4,7 @@ use ::game::*;
 use std::cmp::min;
 use bits::BinConv;
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct Game {
   // Size of the board (i.e. size = 5 for a 5x5 game)
   size: usize,
@@ -26,8 +26,9 @@ pub struct Game {
   walls: u64,
   white: u64,
   black: u64,
-  //
+
   owners: Vec<::bits::Stack>,
+  //owners: [::bits::Stack;25],
   partial_hash: u64,
 }
 
@@ -54,6 +55,7 @@ impl Game {
         white: 0,
         black: 0,
         owners: vec![::bits::Stack::new(); (size*size) as usize],
+        //owners: [::bits::Stack::new(); 25],
         partial_hash: 0,
     })
   }
@@ -460,4 +462,58 @@ impl ToString for Game {
     out.push_str(self.round.to_string().as_str());
     out
   }
+}
+
+#[cfg(test)]
+mod test {
+  use test::Bencher;
+
+  #[bench]
+  fn clone_game(b: &mut Bencher) {
+    let mut m = ::game::Move::Place(::game::Loc{x:0,y:1}, ::game::Piece::Flat);
+    let mut g : ::game::Game = ::game::new(5).unwrap();
+    assert_eq!(g.validate(&m), ::game::MoveValidity::Valid);
+    b.iter(|| {
+      g.clone()
+    });
+  }
+
+  #[bench]
+  fn make_move(b: &mut Bencher) {
+    let mut m = ::game::Move::Place(::game::Loc{x:0,y:1}, ::game::Piece::Flat);
+    let mut g : ::game::Game = ::game::new(5).unwrap();
+    assert_eq!(g.validate(&m), ::game::MoveValidity::Valid);
+    b.iter(|| {
+      let mut g1 = g.clone();
+      g1.execute(&mut m);
+      g1
+    });
+  }
+
+  #[bench]
+  fn check_status(b: &mut Bencher) {
+    let mut m = ::game::Move::Place(::game::Loc{x:0,y:1}, ::game::Piece::Flat);
+    let mut g : ::game::Game = ::game::new(5).unwrap();
+    assert_eq!(g.validate(&m), ::game::MoveValidity::Valid);
+    b.iter(|| {
+      let mut g1 = g.clone();
+      g1.execute(&mut m);
+      g1.status()
+    });
+  }
+
+  #[bench]
+  fn whole_shebang(b: &mut Bencher) {
+    let mut m = ::game::Move::Place(::game::Loc{x:0,y:1}, ::game::Piece::Flat);
+    let mut g : ::game::Game = ::game::new(5).unwrap();
+    assert_eq!(g.validate(&m), ::game::MoveValidity::Valid);
+    b.iter(|| {
+      let mut g1 = g.clone();
+      g1.execute(&mut m);
+      let status = g.status();
+      g1.undo(&m);
+      status
+    });
+  }
+
 }

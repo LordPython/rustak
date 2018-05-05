@@ -233,7 +233,7 @@ pub fn parse_result(input: &str) -> Result<(game::Winner, &str), ErrorType> {
 #[cfg(test)]
 mod tests {
   use std::path::PathBuf;
-  use game::{self, MoveValidity, Game};
+  use game::{self, MoveValidity};
   use sqlite;
   use super::parse_moves;
   use super::parse_result;

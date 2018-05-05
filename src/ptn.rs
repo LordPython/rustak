@@ -61,6 +61,245 @@ pub enum ErrorType {
   NoDrops,
 }
 
+#[derive(Debug)]
+pub struct ParseError {
+  err_type: ErrorType
+}
+
+pub fn parse_move(input: &str) -> Option<Move> {
+  match parse_move_internal(input.trim()) {
+    Ok(("", m)) => Some(m),
+    Ok((s,_)) => {
+      println!("Not exact match, remaining characters: {}", s);
+      None
+    },
+    Err(e) => {
+      println!("Error: {:?}", e);
+      None
+    }
+  }
+}
+
+pub fn parse(input: &str) -> Option<Ptn> {
+  None
+}
+
+macro_rules! parse_char_num (
+  ($input:expr, $lower:expr, $upper:expr, zero: $base:expr) => ({
+    let mut chars = $input.chars();
+    match chars.next() {
+      None => Err(ParseError { err_type: ErrorType::EndOfFile }),
+      Some(c @ $lower ..= $upper) => Ok((chars.as_str(), (c as u8) - ($base as u8))),
+      Some(c) => Err(ParseError { err_type: ErrorType::InvalidChar(c) }),
+    }
+  });
+);
+
+pub fn parse_square(input: &str) -> Result<(&str,Loc),ParseError> {
+  let (remaining,x) =
+    parse_char_num!(input, 'a','h', zero: 'a')
+    .or_else(|_| parse_char_num!(input, 'A','H', zero: 'A'))?;
+  let (remaining,y) = parse_char_num!(remaining, '1','8', zero: '1')?;
+  Ok((remaining, Loc{x,y}))
+}
+
+fn parse_piece_type(input: &str) -> Result<(&str,Piece),ParseError> {
+  let mut chars = input.chars();
+  match chars.next() {
+    None => Err(ParseError { err_type: ErrorType::EndOfFile }),
+    Some('f') | Some('F') => Ok((chars.as_str(), Piece::Flat)),
+    Some('s') | Some('S') => Ok((chars.as_str(), Piece::Wall)),
+    Some('c') | Some('C') => Ok((chars.as_str(), Piece::Cap)),
+    Some(c) => Err(ParseError { err_type: ErrorType::InvalidChar(c) }),
+  }
+}
+
+fn parse_direction(input: &str) -> Result<(&str,Dir),ParseError> {
+  let mut chars = input.chars();
+  match chars.next() {
+    None => Err(ParseError { err_type: ErrorType::EndOfFile }),
+    Some('+') => Ok((chars.as_str(), Dir::Up)),
+    Some('-') => Ok((chars.as_str(), Dir::Down)),
+    Some('<') => Ok((chars.as_str(), Dir::Left)),
+    Some('>') => Ok((chars.as_str(), Dir::Right)),
+    Some(c) => Err(ParseError { err_type: ErrorType::InvalidChar(c) }),
+  }
+}
+
+fn parse_movement(input: &str) -> Result<(&str,Move),ParseError> {
+  let (remaining, num_pieces) = parse_char_num!(input, '1','8', zero: '0').unwrap_or((input, 1));
+  let (remaining, square) = parse_square(remaining)?;
+  let (remaining, dir) = parse_direction(remaining)?;
+  let range = remaining.bytes().take_while(|c| *c >= b'1' && *c <= b'8').count();
+  let (drops_str, remaining) = remaining.split_at(range);
+
+  if range == 0 {
+    Ok((remaining, Move::Move(square, dir, 1, [num_pieces,0,0,0,0,0,0], false)))
+  } else if range <= 7 {
+    let mut drops = [0u8;7];
+    for (i, c) in drops_str.char_indices() {
+      drops[i] = c as u8 - b'0';
+    }
+
+    if num_pieces != drops.iter().sum() {
+      println!("num_pieces={}, drops={:?}", num_pieces, drops);
+      return Err(ParseError { err_type: ErrorType::InvalidPieceCount });
+    }
+
+    Ok((remaining, Move::Move(square, dir, range as u8, drops, false)))
+  } else {
+    Err(ParseError { err_type: ErrorType::TooManyDrops })
+  }
+}
+
+fn parse_placement(input: &str) -> Result<(&str,Move),ParseError> {
+  let (remaining, piece) = parse_piece_type(input).unwrap_or((input, Piece::Flat));
+  let (remaining, square) = parse_square(remaining)?;
+  Ok((remaining, Move::Place(square, piece)))
+}
+
+fn parse_move_internal(input: &str) -> Result<(&str,Move),ParseError> {
+  match parse_movement(input) {
+    Ok(res) => Ok(res),
+    Err(e @ ParseError { err_type: ErrorType::TooManyDrops }) |
+    Err(e @ ParseError { err_type: ErrorType::InvalidPieceCount }) => Err(e),
+    Err(_) => parse_placement(input),
+  }
+}
+
+fn expect_char(input: &str, ch: char) -> Result<&str,ParseError> {
+  let mut chars = input.chars();
+  match chars.next() {
+    Some(c) if c == ch => Ok(chars.as_str()),
+    Some(c) => Err(ParseError { err_type: ErrorType::InvalidChar(c) }),
+    None => Err(ParseError { err_type: ErrorType::EndOfFile }),
+  }
+}
+
+fn parse_key(input: &str) -> Result<(&str,String),ParseError> {
+  if input.is_empty() {
+    return Err(ParseError { err_type: ErrorType::EndOfFile });
+  }
+
+  let key_len = input.bytes().take_while(|c| match *c {
+    b'a' ..= b'z' | b'A' ..= b'Z' | b'_' => true,
+    _ => false
+  }).count();
+
+  if key_len == 0 {
+    return Err(ParseError { err_type: ErrorType::InvalidChar(input.chars().next().unwrap())})
+  }
+
+  let (key, remaining) = input.split_at(key_len);
+  Ok((remaining, key.to_ascii_lowercase()))
+}
+
+fn parse_value(input: &str) -> Result<(&str,String),ParseError> {
+  let remaining = expect_char(input, '"')?;
+  let value_len = remaining.bytes().take_while(|c| *c != b'"').count();
+  let (value, remaining) = remaining.split_at(value_len);
+  let remaining = expect_char(remaining, '"')?;
+  Ok((remaining, value.to_string()))
+}
+
+fn parse_tag(input: &str) -> Result<(&str,Tag),ParseError> {
+  let remaining = expect_char(input, '[')?;
+  let (remaining, name) = parse_key(remaining.trim_left())?;
+  let (remaining, value) = parse_value(remaining.trim_left())?;
+  let remaining = expect_char(remaining.trim_left(), ']')?;
+  Ok((remaining, Tag { name, value }))
+}
+
+fn parse_winner(input: &str) -> Result<(&str, game::Winner), ErrorType> {
+  use self::ErrorType::*;
+  let mut chars = input.chars();
+  let res = match chars.next() {
+    Some('1') => {
+      match chars.next() {
+        Some('-') => {
+          match chars.next() {
+            Some('0') => game::Winner::Other(Player::White),
+            Some(c) => return Err(InvalidChar(c)),
+            None => return Err(EndOfFile),
+          }
+        },
+        Some('/') => {
+          match chars.next() {
+            Some('2') => {},
+            Some(c) => return Err(InvalidChar(c)),
+            None => return Err(EndOfFile),
+          }
+          match chars.next() {
+            Some('-') => {},
+            Some(c) => return Err(InvalidChar(c)),
+            None => return Err(EndOfFile),
+          }
+          match chars.next() {
+            Some('1') => {},
+            Some(c) => return Err(InvalidChar(c)),
+            None => return Err(EndOfFile),
+          }
+          match chars.next() {
+            Some('/') => {},
+            Some(c) => return Err(InvalidChar(c)),
+            None => return Err(EndOfFile),
+          }
+          match chars.next() {
+            Some('2') => game::Winner::Draw,
+            Some(c) => return Err(InvalidChar(c)),
+            None => return Err(EndOfFile),
+          }
+        },
+        Some(c) => return Err(InvalidChar(c)),
+        None => return Err(EndOfFile),
+      }
+    },
+    Some('0') => {
+      match chars.next() {
+        Some('-') => {},
+        Some(c) => return Err(InvalidChar(c)),
+        None => return Err(EndOfFile),
+      }
+      match chars.next() {
+        Some('R') => game::Winner::Road(Player::Black),
+        Some('F') => game::Winner::Flat(Player::Black),
+        Some('1') => game::Winner::Other(Player::Black),
+        Some(c) => return Err(InvalidChar(c)),
+        None => return Err(EndOfFile),
+      }
+    },
+    Some('R') => {
+      match chars.next() {
+        Some('-') => {},
+        Some(c) => return Err(InvalidChar(c)),
+        None => return Err(EndOfFile),
+      }
+      match chars.next() {
+        Some('0') => game::Winner::Road(Player::White),
+        Some(c) => return Err(InvalidChar(c)),
+        None => return Err(EndOfFile),
+      }
+    },
+    Some('F') => {
+      match chars.next() {
+        Some('-') => {},
+        Some(c) => return Err(InvalidChar(c)),
+        None => return Err(EndOfFile),
+      }
+      match chars.next() {
+        Some('0') => game::Winner::Flat(Player::White),
+        Some(c) => return Err(InvalidChar(c)),
+        None => return Err(EndOfFile),
+      }
+    },
+    Some(c) => return Err(InvalidChar(c)),
+    None => return Err(EndOfFile),
+  };
+
+  Ok((chars.as_str(), res))
+}
+
+/*
 macro_rules! char_to_number (
   ($i:expr, $lower:expr, $upper:expr, base: $base:expr) => ({
     let mut chars = $i.chars();
@@ -279,6 +518,55 @@ pub fn parse_move(input: &str) -> Option<Move> {
   }
 }
 
+pub fn parse(input: &str) -> Option<Ptn> {
+  let result = do_parse!(CompleteStr(input),
+    eat_ws >>
+    tags: separated_list!(eat_ws, tag) >>
+    eat_ws >>
+    moves: body >>
+    eat_ws >>
+    eof!() >>
+    ({
+      let mut notation = Ptn { player1: String::new(), player2: String::new(), size: 0, result: None, tags, moves };
+
+      for tag in &notation.tags {
+        if tag.name == "player1" {
+          notation.player1 = tag.value.clone();
+        }
+        else if tag.name == "player2" {
+          notation.player2 = tag.value.clone();
+        }
+        else if tag.name == "size" {
+          if let Ok(size) = tag.value.parse::<usize>() {
+            notation.size = size;
+          }
+        } else if tag.name == "result" {
+          if let Ok((_,result)) = result(CompleteStr(&tag.value)) {
+            notation.result = Some(result);
+          }
+        }
+      }
+      notation
+    })
+  );
+
+  match result {
+    Ok((_,ptn)) => {
+      if ptn.size < 3 || ptn.size > 8 { None }
+      else { Some(ptn) }
+    }
+    Err(nom::Err::Error(c)) | Err(nom::Err::Failure(c)) => {
+      println!("ERROR LIST {:?}", error_to_list(&c));
+      None
+    }
+    _ => {
+      println!("INCOMPLETE");
+      None
+    }
+  }
+}
+*/
+
 pub fn to_string(m: &Move) -> String {
   match m {
     Move::Place(loc, piece) => {
@@ -314,54 +602,6 @@ pub fn to_string(m: &Move) -> String {
       }
       string
     },
-  }
-}
-
-pub fn parse(input: &str) -> Option<Ptn> {
-  let result = do_parse!(CompleteStr(input),
-    eat_ws >>
-    tags: separated_list!(eat_ws, tag) >>
-    eat_ws >>
-    moves: body >>
-    eat_ws >>
-    eof!() >>
-    ({
-      let mut notation = Ptn { player1: String::new(), player2: String::new(), size: 0, result: None, tags, moves };
-
-      for tag in &notation.tags {
-          if tag.name == "player1" {
-            notation.player1 = tag.value.clone();
-          }
-          else if tag.name == "player2" {
-            notation.player2 = tag.value.clone();
-          }
-          else if tag.name == "size" {
-            if let Ok(size) = tag.value.parse::<usize>() {
-              notation.size = size;
-            }
-          } else if tag.name == "result" {
-            if let Ok((_,result)) = result(CompleteStr(&tag.value)) {
-              notation.result = Some(result);
-            }
-          }
-      }
-      notation
-    })
-  );
-
-  match result {
-    Ok((_,ptn)) => {
-      if ptn.size < 3 || ptn.size > 8 { None }
-      else { Some(ptn) }
-    }
-    Err(nom::Err::Error(c)) | Err(nom::Err::Failure(c)) => {
-      println!("ERROR LIST {:?}", error_to_list(&c));
-      None
-    }
-    _ => {
-      println!("INCOMPLETE");
-      None
-    }
   }
 }
 

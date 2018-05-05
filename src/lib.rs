@@ -5,6 +5,8 @@ extern crate test;
 #[macro_use]
 extern crate nom;
 extern crate time;
+
+#[cfg(test)]
 extern crate sqlite;
 
 pub mod bits;
@@ -169,18 +171,18 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
-  use super::ptn;
   use test::Bencher;
 
+  /*
   #[bench]
   fn test_ptn(b: &mut Bencher) {
-    //let file = include_bytes!("../test.ptn");
-    //b.iter(|| ptn::parse(file));
+    let file = include_str!("../test.ptn");
+    b.iter(|| ::ptn::parse(file));
   }
+  */
 
   #[bench]
   fn test_move(b: &mut Bencher) {
-    //b.iter(|| ptn::parse_move(&b"3c3+12"[..]));
+    b.iter(|| ::ptn::parse_move("3c3+12"));
   }
 }
